@@ -4,6 +4,7 @@ import { llmExtract } from "./llm";
 import { getWinningNumbersForDate, getDrawDatesInRange } from "./winningNumbers";
 import { checkMatch, MatchResult } from "./prizeCalculator";
 import { checkWinningsSchema } from "./validation";
+import { fetchJackpotPage } from "./apify";
 
 admin.initializeApp();
 
@@ -196,5 +197,33 @@ export const backfillWinningNumbers = functions
           error: message,
         });
       }
+    }
+  });
+
+// ─── fetchJackpot (hourly scheduled) ───────────────────────────────────────
+
+export const fetchJackpot = functions
+  .runWith({
+    memory: "256MB",
+    timeoutSeconds: 300,
+  })
+  .pubsub.schedule("every 4 hours")
+  .timeZone("America/New_York")
+  .onRun(async () => {
+    try {
+      const info = await fetchJackpotPage();
+
+      const db = admin.firestore();
+      await db.collection("jackpot").doc("current").set({
+        jackpotAmount: info.jackpotAmount,
+        cashOption: info.cashOption,
+        nextDrawing: info.nextDrawing,
+        updatedAt: new Date().toISOString(),
+      });
+
+      functions.logger.info("[fetchJackpot] Updated jackpot info", info);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      functions.logger.error("[fetchJackpot] Failed", { error: message });
     }
   });

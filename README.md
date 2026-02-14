@@ -18,6 +18,7 @@ A two-stage ticket scanner that uses LLM-based OCR to extract Mega Millions lott
 - Input: `{ imageBase64: string }`
 - Calls OpenRouter with `@preset/megamillion-identifier` model
 - Extracts plays (numbers + mega ball), megaplier, draw date, ticket purchase date
+- Sanitizes out-of-range values to `null` (white balls must be 1–70, mega ball 1–25)
 - Auto-infers draw date from ticket purchase date if not explicitly found (next Tuesday or Friday)
 - Returns: `{ plays, megaplier, drawDate, ticketDate, rawResponse }`
 
@@ -27,7 +28,42 @@ A two-stage ticket scanner that uses LLM-based OCR to extract Mega Millions lott
 - Auto-corrects non-draw dates to next Tuesday/Friday
 - Returns `"not_yet_drawn"` for future draw dates
 - Calculates prize tier per play with megaplier multiplication
-- Returns: `{ status, drawDate, winningNumbers, winningMegaBall, megaplierValue, matches }`
+- Returns: `{ status, drawDate, winningNumbers, winningMegaBall, megaplierValue, youtubeLink, matches }`
+
+**`backfillWinningNumbers`** — Daily scheduled (6 AM ET)
+- Computes all draw dates (Tue/Fri) from the last 14 days
+- Batch-checks Firestore for existing entries, only fetches missing ones from Apify
+- Also backfills YouTube drawing video links for docs that are missing them
+- Minimizes API credits by skipping already-cached dates
+
+**`fetchJackpot`** — Scheduled every 4 hours
+- Scrapes [megamillions.com](https://www.megamillions.com/) via Apify's `website-content-crawler` (playwright mode)
+- Extracts current jackpot amount, cash option, and next drawing date
+- Writes to Firestore: `jackpot/current`
+
+### Firestore Collections
+
+**`winning_numbers/{YYYY-MM-DD}`** — Cached winning numbers per draw date
+```json
+{
+  "numbers": [10, 19, 31, 47, 56],
+  "megaBall": 6,
+  "megaplier": 5,
+  "drawDate": "2026-02-11",
+  "fetchedAt": "2026-02-12T06:00:00.000Z",
+  "youtubeLink": "https://www.youtube.com/watch?v=..."
+}
+```
+
+**`jackpot/current`** — Latest jackpot info (updated every 4 hours)
+```json
+{
+  "jackpotAmount": "$395 Million",
+  "cashOption": "$183.3 Million",
+  "nextDrawing": "Tuesday, 2/17 @ 11 p.m. ET",
+  "updatedAt": "2026-02-14T11:53:56.913Z"
+}
+```
 
 ### Prize Tiers
 
@@ -54,17 +90,23 @@ Mega Millions draws happen on **Tuesdays and Fridays** at 11 PM ET.
 5. If only `ticketDate` found on another day → next Tue/Fri
 6. User can always manually edit the date before checking
 
+### YouTube Drawing Videos
+
+When winning numbers are fetched, the system also searches YouTube for the official Mega Millions drawing video. Videos are uploaded by the "MegaMillions" channel with the title format `MM{MMDDYYYY}` (e.g. `MM02132026` for February 13, 2026). Only exact title + channel matches are accepted. The link is cached in the `winning_numbers` doc and returned in `checkWinnings`.
+
 ## Project Structure
 
 ```
 mega-millions/
 ├── functions/                    # Firebase Cloud Functions
 │   ├── src/
-│   │   ├── index.ts              # scanTicket + checkWinnings functions
+│   │   ├── index.ts              # scanTicket, checkWinnings, backfill, fetchJackpot
 │   │   ├── llm.ts                # OpenRouter LLM extraction
-│   │   ├── apify.ts              # Apify API client
-│   │   ├── winningNumbers.ts     # Firestore cache + draw date logic
-│   │   └── prizeCalculator.ts    # Prize tier matching
+│   │   ├── apify.ts              # Apify API client (winning numbers + jackpot scraper)
+│   │   ├── winningNumbers.ts     # Firestore cache + draw date logic + YouTube search
+│   │   ├── prizeCalculator.ts    # Prize tier matching
+│   │   ├── validation.ts         # Zod input validation schemas
+│   │   └── __tests__/            # Jest tests
 │   ├── example_tickets/          # Sample ticket images for testing
 │   ├── .env                      # OPENROUTER_API_KEY, APIFY_TOKEN
 │   ├── package.json
@@ -106,6 +148,16 @@ APIFY_TOKEN=apify_api_...
 - **OpenRouter API key**: Get from [openrouter.ai](https://openrouter.ai)
 - **Apify token**: Get from [console.apify.com/settings/integrations](https://console.apify.com/settings/integrations)
 
+### Google APIs
+
+The YouTube Data API v3 must be enabled for YouTube drawing video lookup:
+
+```bash
+gcloud services enable youtube.googleapis.com --project mega-millions-fb
+```
+
+No separate API key needed — uses the Firebase service account credentials.
+
 ### Install Dependencies
 
 ```bash
@@ -134,17 +186,18 @@ cd dashboard && npm run dev
 
 Dashboard runs at `http://localhost:5173`
 
-### Build
+### Build & Test
 
 ```bash
 cd functions && npm run build    # TypeScript → lib/
+cd functions && npm test         # Jest tests
 cd dashboard && npm run build    # SvelteKit production build
 ```
 
 ## Dashboard Usage
 
 1. **Scan** — Click "Scan" on a ticket image (or "Scan All" for batch). The LLM extracts plays, megaplier, and dates.
-2. **Review & Edit** — Check the extracted numbers, mega ball, draw date, and megaplier toggle. Edit anything the LLM got wrong.
+2. **Review & Edit** — Check the extracted numbers, mega ball, draw date, and megaplier toggle. Edit anything the LLM got wrong. Out-of-range values appear as empty (null) for easy identification.
 3. **Confirm & Check** — Click "Confirm & Check" to look up winning numbers and see results. Matched balls are highlighted green, with prize badges per play.
 
 ## API (Callable Functions)
@@ -197,6 +250,7 @@ Response (found):
     "winningNumbers": [10, 19, 31, 47, 56],
     "winningMegaBall": 6,
     "megaplierValue": 5,
+    "youtubeLink": "https://www.youtube.com/watch?v=...",
     "matches": [
       {
         "playIndex": 0,

@@ -43,6 +43,7 @@ export interface CheckWinningsFound {
 	winningNumbers: number[];
 	winningMegaBall: number;
 	megaplierValue: number;
+	youtubeLink: string | null;
 	matches: MatchResult[];
 }
 

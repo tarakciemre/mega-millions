@@ -1,7 +1,11 @@
 import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
 import { llmExtract } from "./llm";
-import { getWinningNumbersForDate, getDrawDatesInRange } from "./winningNumbers";
+import {
+  getWinningNumbersForDate,
+  getDrawDatesInRange,
+  searchYouTubeDrawing,
+} from "./winningNumbers";
 import { checkMatch, MatchResult } from "./prizeCalculator";
 import { checkWinningsSchema } from "./validation";
 import { fetchJackpotPage } from "./apify";
@@ -136,6 +140,7 @@ export const checkWinnings = functions
       winningNumbers: doc.numbers,
       winningMegaBall: doc.megaBall,
       megaplierValue: doc.megaplier,
+      youtubeLink: doc.youtubeLink ?? null,
       matches,
     };
   });
@@ -168,35 +173,71 @@ export const backfillWinningNumbers = functions
     const snapshots = await db.getAll(...refs);
 
     const existing = new Set<string>();
+    const missingYouTube: string[] = [];
     for (const snap of snapshots) {
-      if (snap.exists) existing.add(snap.id);
+      if (snap.exists) {
+        existing.add(snap.id);
+        const data = snap.data();
+        if (!data?.youtubeLink) {
+          missingYouTube.push(snap.id);
+        }
+      }
     }
 
     const missing = drawDates.filter((d) => !existing.has(d));
 
-    if (missing.length === 0) {
-      functions.logger.info("[backfill] All draw dates already cached", {
-        drawDates,
+    // Fetch winning numbers for missing dates
+    if (missing.length > 0) {
+      functions.logger.info("[backfill] Fetching missing dates", {
+        missing,
+        alreadyCached: drawDates.length - missing.length,
       });
-      return;
+
+      for (const date of missing) {
+        try {
+          await getWinningNumbersForDate(date);
+          functions.logger.info("[backfill] Fetched", { date });
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          functions.logger.error("[backfill] Failed to fetch", {
+            date,
+            error: message,
+          });
+        }
+      }
     }
 
-    functions.logger.info("[backfill] Fetching missing dates", {
-      missing,
-      alreadyCached: drawDates.length - missing.length,
-    });
+    // Backfill YouTube links for existing docs that are missing them
+    if (missingYouTube.length > 0) {
+      functions.logger.info("[backfill] Backfilling YouTube links", {
+        dates: missingYouTube,
+      });
 
-    for (const date of missing) {
-      try {
-        await getWinningNumbersForDate(date);
-        functions.logger.info("[backfill] Fetched", { date });
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        functions.logger.error("[backfill] Failed to fetch", {
-          date,
-          error: message,
-        });
+      for (const date of missingYouTube) {
+        try {
+          const link = await searchYouTubeDrawing(date);
+          if (link) {
+            await db
+              .collection("winning_numbers")
+              .doc(date)
+              .update({ youtubeLink: link });
+            functions.logger.info("[backfill] YouTube link added", {
+              date,
+              link,
+            });
+          }
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          functions.logger.error("[backfill] YouTube backfill failed", {
+            date,
+            error: message,
+          });
+        }
       }
+    }
+
+    if (missing.length === 0 && missingYouTube.length === 0) {
+      functions.logger.info("[backfill] Everything up to date", { drawDates });
     }
   });
 

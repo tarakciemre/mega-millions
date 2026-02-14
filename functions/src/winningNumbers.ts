@@ -1,5 +1,6 @@
 import * as admin from "firebase-admin";
 import * as functions from "firebase-functions";
+import { GoogleAuth } from "google-auth-library";
 import { fetchWinningNumbers } from "./apify";
 
 export interface WinningNumbersDoc {
@@ -8,6 +9,7 @@ export interface WinningNumbersDoc {
   megaplier: number;
   drawDate: string;
   fetchedAt: string;
+  youtubeLink: string | null;
 }
 
 // Mega Millions draws happen on Tuesday (2) and Friday (5)
@@ -73,6 +75,75 @@ export function getDrawDatesInRange(startDate: string, endDate: string): string[
   }
 
   return dates;
+}
+
+/**
+ * Convert "2026-02-13" → "MM02132026" (Mega Millions YouTube title format)
+ */
+function drawDateToYouTubeQuery(dateStr: string): string {
+  const [yyyy, mm, dd] = dateStr.split("-");
+  return `MM${mm}${dd}${yyyy}`;
+}
+
+/**
+ * Search YouTube for the official Mega Millions drawing video.
+ * Only returns a link if the video title matches exactly and is
+ * uploaded by the "MegaMillions" channel. Returns null otherwise.
+ */
+export async function searchYouTubeDrawing(
+  drawDate: string
+): Promise<string | null> {
+  const expectedTitle = drawDateToYouTubeQuery(drawDate);
+
+  try {
+    const auth = new GoogleAuth({
+      scopes: ["https://www.googleapis.com/auth/youtube.readonly"],
+    });
+    const client = await auth.getClient();
+
+    const url =
+      "https://www.googleapis.com/youtube/v3/search" +
+      `?part=snippet&q=${encodeURIComponent(expectedTitle)}&maxResults=5&type=video`;
+
+    const res = await client.request({ url });
+    const data = res.data as {
+      items?: Array<{
+        id?: { videoId?: string };
+        snippet?: { title?: string; channelTitle?: string };
+      }>;
+    };
+
+    const match = data.items?.find(
+      (item) =>
+        item.snippet?.title === expectedTitle &&
+        item.snippet?.channelTitle === "MegaMillions"
+    );
+
+    if (!match?.id?.videoId) {
+      functions.logger.info("[YouTube] No matching official video found", {
+        expectedTitle,
+        results: data.items?.map((i) => ({
+          title: i.snippet?.title,
+          channel: i.snippet?.channelTitle,
+        })),
+      });
+      return null;
+    }
+
+    const link = `https://www.youtube.com/watch?v=${match.id.videoId}`;
+    functions.logger.info("[YouTube] Found official video", {
+      expectedTitle,
+      link,
+    });
+    return link;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    functions.logger.error("[YouTube] Search failed", {
+      expectedTitle,
+      error: message,
+    });
+    return null;
+  }
 }
 
 export async function getWinningNumbersForDate(
@@ -145,12 +216,15 @@ export async function getWinningNumbersForDate(
     );
   }
 
+  const youtubeLink = await searchYouTubeDrawing(drawDate);
+
   const winningDoc: WinningNumbersDoc = {
     numbers,
     megaBall,
     megaplier,
     drawDate,
     fetchedAt: new Date().toISOString(),
+    youtubeLink,
   };
 
   // Write to Firestore cache

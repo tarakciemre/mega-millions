@@ -3,15 +3,9 @@ import * as admin from "firebase-admin";
 import { llmExtract } from "./llm";
 import { getWinningNumbersForDate } from "./winningNumbers";
 import { checkMatch, MatchResult } from "./prizeCalculator";
+import { checkWinningsSchema } from "./validation";
 
 admin.initializeApp();
-
-// ─── Types ──────────────────────────────────────────────────────────────────
-
-interface Play {
-  numbers: number[];
-  megaBall: number;
-}
 
 // ─── Input validation ───────────────────────────────────────────────────────
 
@@ -45,9 +39,14 @@ export const scanTicket = functions
     try {
       const llmResult = await llmExtract(imageBase64);
 
-      const plays: Play[] = llmResult.plays.map((p) => ({
-        numbers: p.numbers,
-        megaBall: p.megaBall,
+      const plays = llmResult.plays.map((p) => ({
+        numbers: p.numbers.map((n) =>
+          Number.isInteger(n) && n! >= 1 && n! <= 70 ? n : null
+        ),
+        megaBall:
+          Number.isInteger(p.megaBall) && p.megaBall! >= 1 && p.megaBall! <= 25
+            ? p.megaBall
+            : null,
       }));
 
       if (plays.length === 0) {
@@ -74,37 +73,13 @@ export const scanTicket = functions
 
 // ─── checkWinnings ──────────────────────────────────────────────────────────
 
-interface CheckWinningsInput {
-  plays: { numbers: number[]; megaBall: number }[];
-  megaplier: boolean;
-  drawDate: string;
-}
-
-function validateCheckWinningsInput(data: unknown): CheckWinningsInput {
-  if (!data || typeof data !== "object") {
-    throw new functions.https.HttpsError(
-      "invalid-argument",
-      "Request must include plays, megaplier, and drawDate"
-    );
+function validateCheckWinningsInput(data: unknown) {
+  const result = checkWinningsSchema.safeParse(data);
+  if (!result.success) {
+    const messages = result.error.issues.map((i) => i.message).join("; ");
+    throw new functions.https.HttpsError("invalid-argument", messages);
   }
-
-  const { plays, megaplier, drawDate } = data as CheckWinningsInput;
-
-  if (!Array.isArray(plays) || plays.length === 0) {
-    throw new functions.https.HttpsError(
-      "invalid-argument",
-      "plays must be a non-empty array"
-    );
-  }
-
-  if (typeof drawDate !== "string" || !/^\d{4}-\d{2}-\d{2}/.test(drawDate)) {
-    throw new functions.https.HttpsError(
-      "invalid-argument",
-      "drawDate must be a YYYY-MM-DD string"
-    );
-  }
-
-  return { plays, megaplier: !!megaplier, drawDate: drawDate.slice(0, 10) };
+  return result.data;
 }
 
 export const checkWinnings = functions

@@ -29,8 +29,8 @@ Rules:
 - Return ONLY valid JSON, no other text`;
 
 export interface LlmPlay {
-  numbers: number[];
-  megaBall: number;
+  numbers: (number | null)[];
+  megaBall: number | null;
 }
 
 export interface LlmResult {

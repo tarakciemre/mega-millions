@@ -56,6 +56,25 @@ export interface LookupResult {
   doc: WinningNumbersDoc | null;
 }
 
+/**
+ * Return all Mega Millions draw dates (Tue/Fri) between startDate and
+ * endDate inclusive. Both parameters are "YYYY-MM-DD" strings.
+ */
+export function getDrawDatesInRange(startDate: string, endDate: string): string[] {
+  const dates: string[] = [];
+  const current = new Date(startDate + "T12:00:00Z");
+  const end = new Date(endDate + "T12:00:00Z");
+
+  while (current <= end) {
+    if (DRAW_DAYS.includes(current.getUTCDay())) {
+      dates.push(current.toISOString().slice(0, 10));
+    }
+    current.setUTCDate(current.getUTCDate() + 1);
+  }
+
+  return dates;
+}
+
 export async function getWinningNumbersForDate(
   inputDate: string
 ): Promise<LookupResult> {

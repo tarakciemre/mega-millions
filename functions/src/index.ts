@@ -1,7 +1,7 @@
 import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
 import { llmExtract } from "./llm";
-import { getWinningNumbersForDate } from "./winningNumbers";
+import { getWinningNumbersForDate, getDrawDatesInRange } from "./winningNumbers";
 import { checkMatch, MatchResult } from "./prizeCalculator";
 import { checkWinningsSchema } from "./validation";
 
@@ -137,4 +137,64 @@ export const checkWinnings = functions
       megaplierValue: doc.megaplier,
       matches,
     };
+  });
+
+// ─── backfillWinningNumbers (daily scheduled) ──────────────────────────────
+
+export const backfillWinningNumbers = functions
+  .runWith({
+    memory: "256MB",
+    timeoutSeconds: 120,
+  })
+  .pubsub.schedule("every day 06:00")
+  .timeZone("America/New_York")
+  .onRun(async () => {
+    const today = new Date();
+    const twoWeeksAgo = new Date(today);
+    twoWeeksAgo.setDate(today.getDate() - 14);
+
+    const toDateStr = (d: Date) => d.toISOString().slice(0, 10);
+    const drawDates = getDrawDatesInRange(toDateStr(twoWeeksAgo), toDateStr(today));
+
+    if (drawDates.length === 0) {
+      functions.logger.info("[backfill] No draw dates in range");
+      return;
+    }
+
+    // Batch-check which dates already exist in Firestore
+    const db = admin.firestore();
+    const refs = drawDates.map((d) => db.collection("winning_numbers").doc(d));
+    const snapshots = await db.getAll(...refs);
+
+    const existing = new Set<string>();
+    for (const snap of snapshots) {
+      if (snap.exists) existing.add(snap.id);
+    }
+
+    const missing = drawDates.filter((d) => !existing.has(d));
+
+    if (missing.length === 0) {
+      functions.logger.info("[backfill] All draw dates already cached", {
+        drawDates,
+      });
+      return;
+    }
+
+    functions.logger.info("[backfill] Fetching missing dates", {
+      missing,
+      alreadyCached: drawDates.length - missing.length,
+    });
+
+    for (const date of missing) {
+      try {
+        await getWinningNumbersForDate(date);
+        functions.logger.info("[backfill] Fetched", { date });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        functions.logger.error("[backfill] Failed to fetch", {
+          date,
+          error: message,
+        });
+      }
+    }
   });

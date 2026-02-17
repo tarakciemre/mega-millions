@@ -18,8 +18,8 @@ const PRIZE_TABLE: [number, boolean, string, number][] = [
   [3, true, "Match 3+MB", 200],
   [3, false, "Match 3", 10],
   [2, true, "Match 2+MB", 10],
-  [1, true, "Match 1+MB", 4],
-  [0, true, "MB Only", 2],
+  [1, true, "Match 1+MB", 7],
+  [0, true, "MB Only", 5],
 ];
 
 export function checkMatch(
@@ -27,8 +27,7 @@ export function checkMatch(
   playMegaBall: number,
   winningNumbers: number[],
   winningMegaBall: number,
-  hasMegaplier: boolean,
-  megaplierValue: number
+  megaplier: number | null
 ): MatchResult {
   const matchedNumbers = playNumbers.filter((n) =>
     winningNumbers.includes(n)
@@ -47,9 +46,9 @@ export function checkMatch(
     }
   }
 
-  // Megaplier multiplies non-jackpot prizes
-  if (hasMegaplier && prizeAmount > 0 && tier !== "Jackpot") {
-    prizeAmount *= megaplierValue;
+  // Per-play megaplier multiplies non-jackpot prizes
+  if (megaplier && prizeAmount > 0 && tier !== "Jackpot") {
+    prizeAmount *= megaplier;
   }
 
   let prize: string;

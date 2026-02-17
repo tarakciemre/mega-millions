@@ -9,18 +9,18 @@ const EXTRACTION_PROMPT = `This is a Mega Millions lottery ticket. Extract the f
   "plays": [
     {
       "numbers": [5 white ball numbers as integers, or null if unreadable],
-      "megaBall": mega ball number as integer, or null if unreadable
+      "megaBall": mega ball number as integer, or null if unreadable,
+      "megaplier": multiplier value as integer (2, 3, 4, 5, or 10), or null if not shown
     }
   ],
-  "megaplier": true/false/null,
   "drawDate": "YYYY-MM-DD" or null,
   "ticketDate": "YYYY-MM-DD" or null
 }
 
 Rules:
-- Each play has exactly 5 white ball numbers (1-70) and 1 mega ball (1-25)
+- Each play has exactly 5 white ball numbers (1-70) and 1 mega ball (1-24)
 - The mega ball is usually the last number, sometimes labeled "MB"
-- megaplier is a TICKET-LEVEL option (not per play). Look for "MEGAPLIER YES/NO" or similar printed once on the ticket. It applies to all plays.
+- megaplier: A per-play multiplier printed on the ticket next to each play line (e.g. "2X", "3X", "4X", "5X", "10X"). Extract just the integer value. If no multiplier is shown for a play, use null.
 - drawDate: The date of the lottery drawing this ticket is for. Look for "DRAW", "DRAWING", or a date near the draw info. This is a Tuesday or Friday.
 - ticketDate: The date/time the ticket was printed/purchased. Look for timestamps, "PRINTED ON", or terminal print dates. This is often NOT a Tuesday or Friday.
 - These are two DIFFERENT dates. The draw date is when the lottery happens. The ticket date is when the ticket was bought/printed.
@@ -31,11 +31,11 @@ Rules:
 export interface LlmPlay {
   numbers: (number | null)[];
   megaBall: number | null;
+  megaplier: number | null;
 }
 
 export interface LlmResult {
   plays: LlmPlay[];
-  megaplier: boolean;
   drawDate: string | null;
   ticketDate: string | null;
   rawResponse: string;
@@ -149,7 +149,6 @@ export async function llmExtract(imageBase64: string): Promise<LlmResult> {
 
   return {
     plays: parsed.plays ?? [],
-    megaplier: parsed.megaplier ?? false,
     drawDate: resolved.drawDate,
     ticketDate: parsed.ticketDate ?? null,
     rawResponse,
@@ -158,7 +157,6 @@ export async function llmExtract(imageBase64: string): Promise<LlmResult> {
 
 interface ParsedLlmResponse {
   plays?: LlmPlay[];
-  megaplier?: boolean | null;
   drawDate?: string | null;
   ticketDate?: string | null;
 }

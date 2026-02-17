@@ -44,13 +44,18 @@ export const scanTicket = functions
     try {
       const llmResult = await llmExtract(imageBase64);
 
+      const VALID_MEGAPLIERS = [2, 3, 4, 5, 10];
       const plays = llmResult.plays.map((p) => ({
         numbers: p.numbers.map((n) =>
           Number.isInteger(n) && n! >= 1 && n! <= 70 ? n : null
         ),
         megaBall:
-          Number.isInteger(p.megaBall) && p.megaBall! >= 1 && p.megaBall! <= 25
+          Number.isInteger(p.megaBall) && p.megaBall! >= 1 && p.megaBall! <= 24
             ? p.megaBall
+            : null,
+        megaplier:
+          Number.isInteger(p.megaplier) && VALID_MEGAPLIERS.includes(p.megaplier!)
+            ? p.megaplier
             : null,
       }));
 
@@ -62,7 +67,6 @@ export const scanTicket = functions
 
       return {
         plays,
-        megaplier: llmResult.megaplier,
         drawDate: llmResult.drawDate,
         ticketDate: llmResult.ticketDate,
         rawResponse: llmResult.rawResponse,
@@ -126,8 +130,7 @@ export const checkWinnings = functions
         play.megaBall,
         doc.numbers,
         doc.megaBall,
-        input.megaplier,
-        doc.megaplier
+        play.megaplier ?? null
       );
       return { ...result, playIndex: i };
     });

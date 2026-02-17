@@ -17,13 +17,13 @@ A two-stage ticket scanner that uses LLM-based OCR to extract Mega Millions lott
 **`scanTicket`** — LLM-based ticket extraction
 - Input: `{ imageBase64: string }`
 - Calls OpenRouter with `@preset/megamillion-identifier` model
-- Extracts plays (numbers + mega ball), megaplier, draw date, ticket purchase date
-- Sanitizes out-of-range values to `null` (white balls must be 1–70, mega ball 1–25)
+- Extracts plays (numbers + mega ball + per-play megaplier), draw date, ticket purchase date
+- Sanitizes out-of-range values to `null` (white balls 1–70, mega ball 1–24, megaplier 2/3/4/5/10)
 - Auto-infers draw date from ticket purchase date if not explicitly found (next Tuesday or Friday)
-- Returns: `{ plays, megaplier, drawDate, ticketDate, rawResponse }`
+- Returns: `{ plays, drawDate, ticketDate, rawResponse }`
 
 **`checkWinnings`** — Winning number lookup + prize calculation
-- Input: `{ plays: { numbers: number[], megaBall: number }[], megaplier: boolean, drawDate: string }`
+- Input: `{ plays: { numbers: number[], megaBall: number, megaplier?: number | null }[], drawDate: string }`
 - Looks up winning numbers: Firestore cache → Apify fallback
 - Auto-corrects non-draw dates to next Tuesday/Friday
 - Returns `"not_yet_drawn"` for future draw dates
@@ -67,17 +67,19 @@ A two-stage ticket scanner that uses LLM-based OCR to extract Mega Millions lott
 
 ### Prize Tiers
 
-| Match | Base Prize | With Megaplier (2x-5x) |
-|-------|-----------|----------------------|
-| 5 + MB | Jackpot | Jackpot (no multiply) |
-| 5 | $1,000,000 | $2M - $5M |
-| 4 + MB | $10,000 | $20K - $50K |
-| 4 | $500 | $1K - $2.5K |
-| 3 + MB | $200 | $400 - $1K |
-| 3 | $10 | $20 - $50 |
-| 2 + MB | $10 | $20 - $50 |
-| 1 + MB | $4 | $8 - $20 |
-| MB only | $2 | $4 - $10 |
+Megaplier is a per-play multiplier (2X, 3X, 4X, 5X, or 10X) printed on each ticket line.
+
+| Match | Base | 2X | 3X | 4X | 5X | 10X |
+|-------|------|-----|-----|-----|------|------|
+| 5 + MB | Jackpot | Jackpot | Jackpot | Jackpot | Jackpot | Jackpot |
+| 5 | $1,000,000 | $2M | $3M | $4M | $5M | $10M |
+| 4 + MB | $10,000 | $20K | $30K | $40K | $50K | $100K |
+| 4 | $500 | $1K | $1.5K | $2K | $2.5K | $5K |
+| 3 + MB | $200 | $400 | $600 | $800 | $1K | $2K |
+| 3 | $10 | $20 | $30 | $40 | $50 | $100 |
+| 2 + MB | $10 | $20 | $30 | $40 | $50 | $100 |
+| 1 + MB | $7 | $14 | $21 | $28 | $35 | $70 |
+| MB only | $5 | $10 | $15 | $20 | $25 | $50 |
 
 ### Draw Date Logic
 
@@ -215,9 +217,8 @@ Response:
 {
   "result": {
     "plays": [
-      { "numbers": [10, 23, 45, 56, 67], "megaBall": 12 }
+      { "numbers": [10, 23, 45, 56, 67], "megaBall": 12, "megaplier": 3 }
     ],
-    "megaplier": true,
     "drawDate": "2025-01-31",
     "ticketDate": "2025-01-30",
     "rawResponse": "..."
@@ -232,8 +233,7 @@ curl -X POST http://127.0.0.1:5001/mega-millions-fb/us-central1/checkWinnings \
   -H "Content-Type: application/json" \
   -d '{
     "data": {
-      "plays": [{"numbers": [10, 23, 45, 56, 67], "megaBall": 12}],
-      "megaplier": true,
+      "plays": [{"numbers": [10, 23, 45, 56, 67], "megaBall": 12, "megaplier": 3}],
       "drawDate": "2025-01-31"
     }
   }'

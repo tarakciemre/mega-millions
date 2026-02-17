@@ -2,7 +2,6 @@ import { checkWinningsSchema } from "../validation";
 
 const validInput = {
   plays: [{ numbers: [1, 2, 3, 4, 5], megaBall: 10 }],
-  megaplier: false,
   drawDate: "2025-01-31",
 };
 
@@ -17,7 +16,7 @@ describe("checkWinningsSchema — valid inputs", () => {
       ...validInput,
       plays: [
         { numbers: [1, 2, 3, 4, 5], megaBall: 10 },
-        { numbers: [6, 7, 8, 9, 10], megaBall: 25 },
+        { numbers: [6, 7, 8, 9, 10], megaBall: 24 },
         { numbers: [11, 22, 33, 44, 55], megaBall: 1 },
       ],
     });
@@ -32,21 +31,37 @@ describe("checkWinningsSchema — valid inputs", () => {
     expect(result.success).toBe(true);
   });
 
-  it("accepts boundary mega ball values (1 and 25)", () => {
+  it("accepts boundary mega ball values (1 and 24)", () => {
     const mb1 = checkWinningsSchema.safeParse({
       ...validInput,
       plays: [{ numbers: [1, 2, 3, 4, 5], megaBall: 1 }],
     });
-    const mb25 = checkWinningsSchema.safeParse({
+    const mb24 = checkWinningsSchema.safeParse({
       ...validInput,
-      plays: [{ numbers: [1, 2, 3, 4, 5], megaBall: 25 }],
+      plays: [{ numbers: [1, 2, 3, 4, 5], megaBall: 24 }],
     });
     expect(mb1.success).toBe(true);
-    expect(mb25.success).toBe(true);
+    expect(mb24.success).toBe(true);
   });
 
-  it("accepts megaplier true", () => {
-    const result = checkWinningsSchema.safeParse({ ...validInput, megaplier: true });
+  it("accepts per-play megaplier value", () => {
+    const result = checkWinningsSchema.safeParse({
+      ...validInput,
+      plays: [{ numbers: [1, 2, 3, 4, 5], megaBall: 10, megaplier: 3 }],
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts null megaplier per play", () => {
+    const result = checkWinningsSchema.safeParse({
+      ...validInput,
+      plays: [{ numbers: [1, 2, 3, 4, 5], megaBall: 10, megaplier: null }],
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts play without megaplier field", () => {
+    const result = checkWinningsSchema.safeParse(validInput);
     expect(result.success).toBe(true);
   });
 });
@@ -119,7 +134,7 @@ describe("checkWinningsSchema — mega ball validation", () => {
     expect(result.success).toBe(false);
   });
 
-  it("rejects mega ball above 25", () => {
+  it("rejects mega ball above 24", () => {
     const result = checkWinningsSchema.safeParse({
       ...validInput,
       plays: [{ numbers: [1, 2, 3, 4, 5], megaBall: 26 }],
@@ -147,8 +162,7 @@ describe("checkWinningsSchema — plays array validation", () => {
 
   it("rejects missing plays", () => {
     const result = checkWinningsSchema.safeParse({
-      megaplier: false,
-      drawDate: "2025-01-31",
+          drawDate: "2025-01-31",
     });
     expect(result.success).toBe(false);
   });
@@ -167,8 +181,7 @@ describe("checkWinningsSchema — drawDate validation", () => {
   it("rejects missing drawDate", () => {
     const result = checkWinningsSchema.safeParse({
       plays: [{ numbers: [1, 2, 3, 4, 5], megaBall: 10 }],
-      megaplier: false,
-    });
+        });
     expect(result.success).toBe(false);
   });
 
@@ -197,19 +210,27 @@ describe("checkWinningsSchema — drawDate validation", () => {
   });
 });
 
-describe("checkWinningsSchema — megaplier validation", () => {
-  it("rejects missing megaplier", () => {
+describe("checkWinningsSchema — per-play megaplier validation", () => {
+  it.each([2, 3, 4, 5, 10])("accepts valid megaplier %d", (val) => {
     const result = checkWinningsSchema.safeParse({
-      plays: [{ numbers: [1, 2, 3, 4, 5], megaBall: 10 }],
-      drawDate: "2025-01-31",
+      ...validInput,
+      plays: [{ numbers: [1, 2, 3, 4, 5], megaBall: 10, megaplier: val }],
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it.each([0, 1, 6, 7, 8, 9, 11])("rejects invalid megaplier %d", (val) => {
+    const result = checkWinningsSchema.safeParse({
+      ...validInput,
+      plays: [{ numbers: [1, 2, 3, 4, 5], megaBall: 10, megaplier: val }],
     });
     expect(result.success).toBe(false);
   });
 
-  it("rejects non-boolean megaplier", () => {
+  it("rejects non-integer megaplier", () => {
     const result = checkWinningsSchema.safeParse({
       ...validInput,
-      megaplier: "yes",
+      plays: [{ numbers: [1, 2, 3, 4, 5], megaBall: 10, megaplier: 2.5 }],
     });
     expect(result.success).toBe(false);
   });

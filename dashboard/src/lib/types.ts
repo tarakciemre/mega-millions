@@ -1,11 +1,11 @@
 export interface Play {
 	numbers: (number | null)[];
 	megaBall: number | null;
+	megaplier: number | null;
 }
 
 export interface TicketData {
 	plays: Play[];
-	megaplier: boolean;
 	drawDate: string | null;
 	ticketDate: string | null;
 	rawResponse: string;

@@ -1,10 +1,10 @@
 import { z } from "zod";
 
-// White balls: 1–70, Mega Ball: 1–25
+// White balls: 1–70, Mega Ball: 1–24
 const WHITE_BALL_MIN = 1;
 const WHITE_BALL_MAX = 70;
 const MEGA_BALL_MIN = 1;
-const MEGA_BALL_MAX = 25;
+const MEGA_BALL_MAX = 24;
 const NUMBERS_PER_PLAY = 5;
 
 const whiteBall = z
@@ -19,12 +19,20 @@ const megaBall = z
   .min(MEGA_BALL_MIN, `Mega Ball must be at least ${MEGA_BALL_MIN}`)
   .max(MEGA_BALL_MAX, `Mega Ball must be at most ${MEGA_BALL_MAX}`);
 
+const megaplierValue = z
+  .number()
+  .int("Megaplier must be an integer")
+  .refine((v) => [2, 3, 4, 5, 10].includes(v), {
+    message: "Megaplier must be 2, 3, 4, 5, or 10",
+  });
+
 const playSchema = z
   .object({
     numbers: z
       .array(whiteBall)
       .length(NUMBERS_PER_PLAY, `Each play must have exactly ${NUMBERS_PER_PLAY} numbers`),
     megaBall: megaBall,
+    megaplier: megaplierValue.nullable().optional(),
   })
   .refine(
     (play) => new Set(play.numbers).size === play.numbers.length,
@@ -36,7 +44,6 @@ export const checkWinningsSchema = z.object({
     .array(playSchema)
     .min(1, "At least one play is required")
     .max(20, "Maximum 20 plays per ticket"),
-  megaplier: z.boolean(),
   drawDate: z
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/, "drawDate must be in YYYY-MM-DD format"),
